@@ -50,13 +50,13 @@ httpClient:
 backends:
   - name: fivetran
     type: "fivetran"
-    enabled: false
+    enabled: true
     connection:
-      apiKey: /path/to/fivetran_key
-      apiSecret: /path/to/fivetran_secret
+      apiKey: file|/path/to/fivetran_key
+      apiSecret: file|/path/to/fivetran_secret
   - name: rover
     type: "rover"
-    enabled: false
+    enabled: true
     connection:
       url: "https://rover.test.com"
       cert_path: "/path/to/usernaut.crt"
@@ -66,23 +66,7 @@ backends:
     type: "snowflake"
     enabled: true
     connection: 
-      private_key: file|/Users/pthacker/Documents/Snowflake_keys/rsa_key.p8
-      base_url: https://gdadclc-rhplatformtest.snowflakecomputing.com
-  - name: snowflake_rhdev
-    type: "snowflake"
-    enabled: false
-    connection: 
-      private_key: file|/Users/pthacker/Documents/Snowflake_keys/rsa_key.p8
-      base_url: https://gdadclc-rhdev.snowflakecomputing.com
-  - name: snowflake_rhpreprod
-    type: "snowflake"
-    enabled: false
-    connection: 
-      private_key: file|/Users/pthacker/Documents/Snowflake_keys/rsa_key.p8
-      base_url: https://gdadclc-rhpreprod.snowflakecomputing.com
-  - name: snowflake_rhprod
-    type: "snowflake"
-    enabled: false
-    connection: 
-      private_key: file|/Users/pthacker/Documents/Snowflake_keys/rsa_key.p8
-      base_url: https://gdadclc-rhprod.snowflakecomputing.com
+      organization: organization
+      account: account
+      pat: pat
+      base_url: base_url

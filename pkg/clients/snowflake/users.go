@@ -113,9 +113,6 @@ func (c *SnowflakeClient) CreateUser(ctx context.Context, user *structs.User) (*
 		payload["displayName"] = user.DisplayName
 	}
 
-	// Set default role to PUBLIC (minimal privileges) to avoid account admin privileges
-	payload["defaultRole"] = "PUBLIC"
-
 	resp, _, status, err := c.sendRequest(ctx, endpoint, http.MethodPost, payload)
 	if err != nil {
 		return nil, err

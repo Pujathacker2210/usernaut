@@ -95,23 +95,16 @@ func New(backendName, backendType string, backends map[string]map[string]config.
 			return nil, err
 		}
 
-		// Support both PAT and private_key fields for flexibility
+		account := backend.GetStringConnection("account", "")
 		pat := backend.GetStringConnection("pat", "")
-		privateKey := backend.GetStringConnection("private_key", "")
 		baseURL := backend.GetStringConnection("base_url", "")
 
-		// Use either PAT or private_key (private_key takes precedence)
-		authToken := pat
-		if privateKey != "" {
-			authToken = privateKey
-		}
-
-		if authToken == "" || baseURL == "" {
-			return nil, errors.New("missing required connection parameters for snowflake backend: (pat or private_key) and base_url are required")
+		if account == "" || pat == "" || baseURL == "" {
+			return nil, errors.New("missing required connection parameters for snowflake backend: account, pat, and base_url are required")
 		}
 
 		snowflakeCfg := snowflake.SnowflakeConfig{
-			PAT:     authToken,
+			PAT:     pat,
 			BaseURL: baseURL,
 		}
 
