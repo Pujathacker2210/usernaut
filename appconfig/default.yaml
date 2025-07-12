@@ -18,9 +18,9 @@ app:
   environment: "default"
 
 ldap:
-  server: "ldap://ldap.test.com:389"
-  baseDN: "ou=adhoc,ou=managedGroups,dc=org,dc=com"
-  userDN: "uid=%s,ou=users,dc=org,dc=com"
+  server: "ldap://ldap.corp.redhat.com:389"
+  baseDN: "ou=adhoc,ou=managedGroups,dc=redhat,dc=com"
+  userDN: "uid=%s,ou=users,dc=redhat,dc=com"
   userSearchFilter: "(objectClass=filterClass)"
   attributes: ["mail", "uid", "cn", "sn", "displayName"]
 
@@ -50,15 +50,23 @@ httpClient:
 backends:
   - name: fivetran
     type: "fivetran"
-    enabled: true
+    enabled: false
     connection:
       apiKey: file|/path/to/fivetran_key
       apiSecret: file|/path/to/fivetran_secret
   - name: rover
     type: "rover"
-    enabled: true
+    enabled: false
     connection:
       url: "https://rover.test.com"
       cert_path: "/path/to/usernaut.crt"
       private_key_path: "/path/to/usernaut.pem"
       service_account_name: test-service-account
+  - name: snowflake_rhplatformtest
+    type: "snowflake"
+    enabled: true
+    connection: 
+      organization: organization
+      account: account
+      pat: pat
+      base_url: base_url

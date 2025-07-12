@@ -23,6 +23,7 @@ import (
 
 	"github.com/redhat-data-and-ai/usernaut/pkg/clients/fivetran"
 	redhatrover "github.com/redhat-data-and-ai/usernaut/pkg/clients/redhat_rover"
+	"github.com/redhat-data-and-ai/usernaut/pkg/clients/snowflake"
 	"github.com/redhat-data-and-ai/usernaut/pkg/common/structs"
 	"github.com/redhat-data-and-ai/usernaut/pkg/config"
 )
@@ -87,6 +88,28 @@ func New(backendName, backendType string, backends map[string]map[string]config.
 		}
 
 		return redhatrover.NewClient(backend.Connection,
+			appConfig.HttpClient.ConnectionPoolConfig, appConfig.HttpClient.HystrixResiliencyConfig)
+	case "snowflake":
+		appConfig, err := config.GetConfig()
+		if err != nil {
+			return nil, err
+		}
+
+		account := backend.GetStringConnection("account", "")
+		pat := backend.GetStringConnection("pat", "")
+		baseURL := backend.GetStringConnection("base_url", "")
+
+		if account == "" || pat == "" || baseURL == "" {
+			return nil, errors.New("missing required connection parameters for snowflake backend: account, pat, and base_url are required")
+		}
+
+		snowflakeCfg := snowflake.SnowflakeConfig{
+			Account: account,
+			PAT:     pat,
+			BaseURL: baseURL,
+		}
+
+		return snowflake.NewClient(snowflakeCfg,
 			appConfig.HttpClient.ConnectionPoolConfig, appConfig.HttpClient.HystrixResiliencyConfig)
 	default:
 		// If no valid backend type is matched, return an error
