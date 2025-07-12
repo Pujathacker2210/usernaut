@@ -18,7 +18,7 @@ app:
   environment: "default"
 
 ldap:
-  server: "ldaps://ldap.corp.redhat.com:636"
+  server: "ldaps://ldap.test.com:389"
   baseDN: "ou=adhoc,ou=managedGroups,dc=redhat,dc=com"
   userDN: "uid=%s,ou=users,dc=redhat,dc=com"
   userSearchFilter: "(objectClass=person)"
