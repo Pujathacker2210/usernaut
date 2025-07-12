@@ -104,7 +104,6 @@ func New(backendName, backendType string, backends map[string]map[string]config.
 		}
 
 		snowflakeCfg := snowflake.SnowflakeConfig{
-			Account: account,
 			PAT:     pat,
 			BaseURL: baseURL,
 		}

@@ -25,78 +25,44 @@ import (
 	"github.com/redhat-data-and-ai/usernaut/pkg/common/structs"
 )
 
-// FetchUserTeams fetches all teams a user belongs to
-func (c *SnowflakeClient) FetchUserTeams(ctx context.Context, userID string) (map[string]structs.Team, error) {
-	endpoint := fmt.Sprintf("/api/v2/users/%s/grants", userID)
-	resp, _, status, err := c.sendRequest(ctx, endpoint, http.MethodGet, nil)
-	if err != nil {
-		return nil, err
-	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch user teams, status: %s, body: %s", http.StatusText(status), string(resp))
-	}
-
-	// Parse the response - expecting an array of grants
-	var grants []map[string]interface{}
-	if err := json.Unmarshal(resp, &grants); err != nil {
-		return nil, fmt.Errorf("failed to parse user teams response: %w", err)
-	}
-
-	// Extract teams from the grants
-	teams := make(map[string]structs.Team)
-	for _, grant := range grants {
-		if privilege, ok := grant["privilege"].(string); ok && privilege == "USAGE" {
-			if securable, ok := grant["securable"].(map[string]interface{}); ok {
-				if name, ok := securable["name"].(string); ok {
-					team := structs.Team{
-						ID:   name,
-						Name: name,
-					}
-					teams[name] = team
-				}
-			}
-		}
-	}
-
-	return teams, nil
-}
-
-// FetchTeamMembersByTeamID fetches all members of a specific team
+// FetchTeamMembersByTeamID fetches team members for a given team ID using the correct REST API endpoint
 func (c *SnowflakeClient) FetchTeamMembersByTeamID(ctx context.Context, teamID string) (map[string]*structs.User, error) {
-	endpoint := fmt.Sprintf("/api/v2/roles/%s/grants-on", teamID)
-	resp, _, status, err := c.sendRequest(ctx, endpoint, http.MethodGet, nil)
+	// Use the correct endpoint: grants-of (not grants-on)
+	endpoint := fmt.Sprintf("/api/v2/roles/%s/grants-of", teamID)
+
+	response, _, status, err := c.sendRequest(ctx, endpoint, http.MethodGet, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error making request to fetch team members: %w", err)
 	}
 	if status != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch team members, status: %s, body: %s", http.StatusText(status), string(resp))
+		return nil, fmt.Errorf("failed to fetch team members, status: %s, body: %s", http.StatusText(status), string(response))
 	}
 
-	// Parse the response - expecting an array of grants
 	var grants []map[string]interface{}
-	if err := json.Unmarshal(resp, &grants); err != nil {
-		return nil, fmt.Errorf("failed to parse team members response: %w", err)
+	if err := json.Unmarshal(response, &grants); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	// Extract users from the grants
-	users := make(map[string]*structs.User)
+	members := make(map[string]*structs.User)
+
 	for _, grant := range grants {
-		if grantee, ok := grant["grantee"].(map[string]interface{}); ok {
-			if name, ok := grantee["name"].(string); ok && grantee["type"].(string) == "USER" {
-				user := &structs.User{
-					ID:       name,
-					UserName: name,
+		// Check if this grant is for a USER (not ROLE)
+		if grantedTo, ok := grant["granted_to"].(string); ok && grantedTo == "USER" {
+			if granteeName, ok := grant["grantee_name"].(string); ok {
+				members[granteeName] = &structs.User{
+					ID:       granteeName,
+					UserName: granteeName,
+					Email:    granteeName, // Snowflake typically uses usernames
 				}
-				users[name] = user
 			}
 		}
 	}
 
-	return users, nil
+	return members, nil
 }
 
 // AddUserToTeam adds a user to a team (grants role to user)
-func (c *SnowflakeClient) AddUserToTeam(ctx context.Context, userID, teamID string) error {
+func (c *SnowflakeClient) AddUserToTeam(ctx context.Context, teamID, userID string) error {
 	endpoint := fmt.Sprintf("/api/v2/users/%s/grants", userID)
 
 	// Create payload for granting role to user
@@ -125,7 +91,7 @@ func (c *SnowflakeClient) AddUserToTeam(ctx context.Context, userID, teamID stri
 }
 
 // RemoveUserFromTeam removes a user from a team (revokes role from user)
-func (c *SnowflakeClient) RemoveUserFromTeam(ctx context.Context, userID, teamID string) error {
+func (c *SnowflakeClient) RemoveUserFromTeam(ctx context.Context, teamID, userID string) error {
 	endpoint := fmt.Sprintf("/api/v2/users/%s/grants:revoke", userID)
 
 	// Create payload for revoking role from user
@@ -151,33 +117,4 @@ func (c *SnowflakeClient) RemoveUserFromTeam(ctx context.Context, userID, teamID
 	}
 
 	return nil
-}
-
-// IsUserInTeam checks if a user is a member of a specific team
-func (c *SnowflakeClient) IsUserInTeam(ctx context.Context, userID, teamID string) (bool, error) {
-	endpoint := fmt.Sprintf("/api/v2/users/%s/grants", userID)
-	resp, _, status, err := c.sendRequest(ctx, endpoint, http.MethodGet, nil)
-	if err != nil {
-		return false, err
-	}
-	if status != http.StatusOK {
-		return false, fmt.Errorf("failed to check user team membership, status: %s, body: %s", http.StatusText(status), string(resp))
-	}
-
-	// Parse the response - expecting an array of grants
-	var grants []map[string]interface{}
-	if err := json.Unmarshal(resp, &grants); err != nil {
-		return false, fmt.Errorf("failed to parse user grants response: %w", err)
-	}
-
-	// Check if user has the specific role
-	for _, grant := range grants {
-		if securable, ok := grant["securable"].(map[string]interface{}); ok {
-			if name, ok := securable["name"].(string); ok && name == teamID {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
 }

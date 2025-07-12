@@ -18,10 +18,10 @@ app:
   environment: "default"
 
 ldap:
-  server: "ldap://ldap.corp.redhat.com:389"
+  server: "ldaps://ldap.corp.redhat.com:636"
   baseDN: "ou=adhoc,ou=managedGroups,dc=redhat,dc=com"
   userDN: "uid=%s,ou=users,dc=redhat,dc=com"
-  userSearchFilter: "(objectClass=filterClass)"
+  userSearchFilter: "(objectClass=person)"
   attributes: ["mail", "uid", "cn", "sn", "displayName"]
 
 cache:
@@ -50,13 +50,13 @@ httpClient:
 backends:
   - name: fivetran
     type: "fivetran"
-    enabled: false
+    enabled: true
     connection:
       apiKey: file|/path/to/fivetran_key
       apiSecret: file|/path/to/fivetran_secret
   - name: rover
     type: "rover"
-    enabled: false
+    enabled: true
     connection:
       url: "https://rover.test.com"
       cert_path: "/path/to/usernaut.crt"

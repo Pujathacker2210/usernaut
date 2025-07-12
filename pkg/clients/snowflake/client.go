@@ -32,7 +32,6 @@ import (
 
 // SnowflakeConfig holds the configuration for Snowflake client
 type SnowflakeConfig struct {
-	Account string
 	PAT     string
 	BaseURL string
 }

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -93,7 +94,7 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			continue
 		}
 
-		r.allLdapUserData[ldapUser.UID] = ldapUser
+		r.allLdapUserData[strings.ToLower(ldapUser.UID)] = ldapUser
 	}
 
 	for _, backend := range groupCR.Spec.Backends {
@@ -134,10 +135,16 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			return ctrl.Result{}, err
 		}
 
-		// members field doesn't contains an email mapped to the user, we need to map it before finding the diff
-		r.backendLogger.WithField("team_members_count", len(members)).Info("fetched team members successfully")
+		// normalize user IDs to lowercase to handle case mismatches between CR and backend
+		normalizedMembers := make(map[string]*structs.User)
+		for userID, user := range members {
+			normalizedMembers[strings.ToLower(userID)] = user
+		}
 
-		usersToAdd, usersToRemove, err := r.processUsers(ctx, groupCR.Spec.Members, members, backend.Name, backend.Type)
+		// members field doesn't contains an email mapped to the user, we need to map it before finding the diff
+		r.backendLogger.WithField("team_members_count", len(normalizedMembers)).Info("fetched team members successfully")
+
+		usersToAdd, usersToRemove, err := r.processUsers(ctx, groupCR.Spec.Members, normalizedMembers, backend.Name, backend.Type)
 		if err != nil {
 			r.backendLogger.WithError(err).Error("error processing users")
 			return ctrl.Result{}, err
@@ -174,12 +181,12 @@ func (r *GroupReconciler) processUsers(ctx context.Context,
 	usersToRemove := make([]string, 0)
 
 	for _, user := range groupUsers {
-		userDetails := r.allLdapUserData[user]
+		userDetails := r.allLdapUserData[strings.ToLower(user)]
 		if userDetails == nil {
 			r.backendLogger.WithField("user", user).Warn("user not found in LDAP data, skipping processing for this user")
 
 			// we need to check if the user is already in the existing team members
-			if _, exists := existingTeamMembers[user]; exists {
+			if _, exists := existingTeamMembers[strings.ToLower(user)]; exists {
 				r.backendLogger.WithField("user", user).Info("user is already in existing team members, skipping user creation")
 				usersToRemove = append(usersToRemove, user)
 			}
@@ -187,7 +194,7 @@ func (r *GroupReconciler) processUsers(ctx context.Context,
 		}
 
 		userDetailsMap := make(map[string]string)
-		userDetailsInCache, err := r.Cache.Get(ctx, userDetails.GetEmail())
+		userDetailsInCache, err := r.Cache.Get(ctx, strings.ToLower(userDetails.GetEmail()))
 		if err != nil && err != redis.Nil || userDetailsInCache == "" {
 			r.backendLogger.WithError(err).Error("error fetching user details from cache")
 			return nil, nil, err
@@ -208,12 +215,25 @@ func (r *GroupReconciler) processUsers(ctx context.Context,
 			r.backendLogger.WithField("user", user).Warn("user ID not found in cache, will create user in backend")
 			return nil, nil, errors.New("user ID not found in cache")
 		}
-		userIDsToSync = append(userIDsToSync, userID)
+		userIDsToSync = append(userIDsToSync, strings.ToLower(userID))
 	}
 
 	// process existing team members to find users to remove
+	r.backendLogger.WithFields(logrus.Fields{
+		"users_to_sync_count":    len(userIDsToSync),
+		"users_to_sync":          userIDsToSync,
+		"existing_members_count": len(existingTeamMembers),
+		"existing_members": func() []string {
+			var keys []string
+			for k := range existingTeamMembers {
+				keys = append(keys, k)
+			}
+			return keys
+		}(),
+	}).Info("comparing users for removal")
+
 	for userID := range existingTeamMembers {
-		if !slices.Contains(userIDsToSync, userID) {
+		if !slices.Contains(userIDsToSync, strings.ToLower(userID)) {
 			usersToRemove = append(usersToRemove, userID)
 		}
 	}
@@ -235,14 +255,14 @@ func (r *GroupReconciler) createUsersInBackendAndCache(ctx context.Context,
 	backendClient clients.Client) error {
 
 	for _, user := range users {
-		userDetails := r.allLdapUserData[user]
+		userDetails := r.allLdapUserData[strings.ToLower(user)]
 		if userDetails == nil {
 			r.backendLogger.WithField("user", user).Warn("user not found in LDAP data, skipping user creation")
 			continue
 		}
 
 		userDetailsMap := make(map[string]string)
-		userDetailsInCache, err := r.Cache.Get(ctx, userDetails.GetEmail())
+		userDetailsInCache, err := r.Cache.Get(ctx, strings.ToLower(userDetails.GetEmail()))
 		if err == nil && userDetailsInCache != "" {
 			// handle error for below statement
 			if jErr := json.Unmarshal([]byte(userDetailsInCache.(string)), &userDetailsMap); jErr != nil {
@@ -273,7 +293,7 @@ func (r *GroupReconciler) createUsersInBackendAndCache(ctx context.Context,
 
 		userDetailsMap[backendName+"_"+backendType] = newUser.ID
 		toBeUpdated, _ := json.Marshal(userDetailsMap)
-		if err := r.Cache.Set(ctx, userDetails.GetEmail(), string(toBeUpdated), cache.NoExpiration); err != nil {
+		if err := r.Cache.Set(ctx, strings.ToLower(userDetails.GetEmail()), string(toBeUpdated), cache.NoExpiration); err != nil {
 			r.backendLogger.Error(err, "error updating user details in cache")
 			return err
 		}
@@ -289,7 +309,7 @@ func (r *GroupReconciler) fetchOrCreateTeam(ctx context.Context,
 
 	teamDetailsMap := make(map[string]string)
 
-	teamDetailsInCache, err := r.Cache.Get(ctx, groupName)
+	teamDetailsInCache, err := r.Cache.Get(ctx, strings.ToLower(groupName))
 	if err == nil && teamDetailsInCache != "" {
 		if jErr := json.Unmarshal([]byte(teamDetailsInCache.(string)), &teamDetailsMap); jErr != nil {
 			r.backendLogger.WithError(jErr).Error("error unmarshalling team details from cache")
@@ -297,7 +317,7 @@ func (r *GroupReconciler) fetchOrCreateTeam(ctx context.Context,
 		}
 
 		// Check if the team details for the backend exist in cache
-		if teamID, exists := teamDetailsMap[backendName+"_"+backendType]; exists && teamID != "" {
+		if teamID, exists := teamDetailsMap[strings.ToLower(backendName)+"_"+strings.ToLower(backendType)]; exists && teamID != "" {
 			r.backendLogger.WithField("teamID", teamID).Info("team details found in cache")
 			return teamID, nil
 		}
@@ -318,9 +338,9 @@ func (r *GroupReconciler) fetchOrCreateTeam(ctx context.Context,
 	r.backendLogger.Info("created team in backend successfully")
 
 	// Create the team in cache
-	teamDetailsMap[backendName+"_"+backendType] = newTeam.ID
+	teamDetailsMap[strings.ToLower(backendName)+"_"+strings.ToLower(backendType)] = newTeam.ID
 	toBeUpdated, _ := json.Marshal(teamDetailsMap)
-	if err := r.Cache.Set(ctx, groupName, string(toBeUpdated), cache.NoExpiration); err != nil {
+	if err := r.Cache.Set(ctx, strings.ToLower(groupName), string(toBeUpdated), cache.NoExpiration); err != nil {
 		r.backendLogger.WithError(err).Error("error updating team details in cache")
 		return "", err
 	}

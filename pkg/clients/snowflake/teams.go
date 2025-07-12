@@ -91,13 +91,6 @@ func (c *SnowflakeClient) FetchTeamDetails(ctx context.Context, teamID string) (
 	return nil, fmt.Errorf("team with ID %s not found", teamID)
 }
 
-// UpdateTeam updates an existing role in Snowflake using REST API
-func (c *SnowflakeClient) UpdateTeam(ctx context.Context, team *structs.Team) (*structs.Team, error) {
-	// Note: Snowflake REST API doesn't support updating role names
-	// This is a limitation of the Snowflake API - roles cannot be renamed
-	return nil, fmt.Errorf("updating role names is not supported by Snowflake REST API")
-}
-
 // DeleteTeamByID deletes a role in Snowflake using REST API
 func (c *SnowflakeClient) DeleteTeamByID(ctx context.Context, teamID string) error {
 	endpoint := fmt.Sprintf("/api/v2/roles/%s", teamID)

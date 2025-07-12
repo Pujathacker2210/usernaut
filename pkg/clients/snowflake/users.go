@@ -15,7 +15,6 @@ import (
 // 2. Subsequent calls /api/v2/results/{result_id}?page=N - returns additional pages
 func (c *SnowflakeClient) FetchAllUsers(ctx context.Context) (map[string]*structs.User, map[string]*structs.User, error) {
 	resultByID := make(map[string]*structs.User)
-	resultByEmail := make(map[string]*structs.User)
 
 	// First request to get initial page and Link header
 	resp, headers, status, err := c.sendRequest(ctx, "/api/v2/users", http.MethodGet, nil)
@@ -27,7 +26,7 @@ func (c *SnowflakeClient) FetchAllUsers(ctx context.Context) (map[string]*struct
 	}
 
 	// Process first page
-	if err := c.processUsersPage(resp, resultByID, resultByEmail); err != nil {
+	if err := c.processUsersPage(resp, resultByID); err != nil {
 		return nil, nil, err
 	}
 
@@ -47,7 +46,7 @@ func (c *SnowflakeClient) FetchAllUsers(ctx context.Context) (map[string]*struct
 			}
 
 			// Process this page
-			if err := c.processUsersPage(resp, resultByID, resultByEmail); err != nil {
+			if err := c.processUsersPage(resp, resultByID); err != nil {
 				return nil, nil, err
 			}
 
@@ -61,11 +60,11 @@ func (c *SnowflakeClient) FetchAllUsers(ctx context.Context) (map[string]*struct
 		}
 	}
 
-	return resultByID, resultByEmail, nil
+	return resultByID, nil, nil
 }
 
 // processUsersPage processes a page of users and adds them to the result maps
-func (c *SnowflakeClient) processUsersPage(resp []byte, resultByID map[string]*structs.User, resultByEmail map[string]*structs.User) error {
+func (c *SnowflakeClient) processUsersPage(resp []byte, resultByID map[string]*structs.User) error {
 	// Parse the response - expecting an array of users
 	var users []map[string]interface{}
 	if err := json.Unmarshal(resp, &users); err != nil {
@@ -91,9 +90,6 @@ func (c *SnowflakeClient) processUsersPage(resp []byte, resultByID map[string]*s
 			}
 
 			resultByID[name] = user
-			if user.Email != "" {
-				resultByEmail[user.Email] = user
-			}
 		}
 	}
 
@@ -174,35 +170,6 @@ func (c *SnowflakeClient) FetchUserDetails(ctx context.Context, userID string) (
 		user.DisplayName = displayName
 	}
 
-	return user, nil
-}
-
-// UpdateUser updates an existing user in Snowflake using REST API
-func (c *SnowflakeClient) UpdateUser(ctx context.Context, user *structs.User) (*structs.User, error) {
-	endpoint := fmt.Sprintf("/api/v2/users/%s", user.UserName)
-
-	// Create payload for user update
-	payload := map[string]interface{}{}
-
-	// Add fields to update
-	if user.Email != "" {
-		payload["email"] = user.Email
-	}
-	if user.DisplayName != "" {
-		payload["displayName"] = user.DisplayName
-	}
-
-	resp, _, status, err := c.sendRequest(ctx, endpoint, http.MethodPut, payload)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check for successful update
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("failed to update user, status: %s, body: %s", http.StatusText(status), string(resp))
-	}
-
-	// Return the updated user
 	return user, nil
 }
 
