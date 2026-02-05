@@ -16,8 +16,8 @@ github.com/alicebob/miniredis/v2 v2.34.0 h1:mBFWMaJSNL9RwdGRyEDoAAv8OQc5UlEhLDQg
 github.com/alicebob/miniredis/v2 v2.34.0/go.mod h1:kWShP4b58T1CW0Y5dViCd5ztzrDqRWqM3nksiyXk5s8=
 github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYWrPrQ=
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
-github.com/atlanhq/atlan-go v0.1.0 h1:5OeJI+q/0ULPfL0hAKmZNL7qFzOBTAV7UEArQ7AxoN4=
-github.com/atlanhq/atlan-go v0.1.0/go.mod h1:qevIHTGhJ8RcE520IJb8VBxXISZ10DQvk9pCe9JO984=
+github.com/atlanhq/atlan-go v0.2.0 h1:WmPNz2iAeaObeZPl3gdYNNENXzidl0E4IvvmG+hS73o=
+github.com/atlanhq/atlan-go v0.2.0/go.mod h1:qevIHTGhJ8RcE520IJb8VBxXISZ10DQvk9pCe9JO984=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/blang/semver/v4 v4.0.0 h1:1PFHFE6yCCTv8C1TeyNNarDzntLi7wMI5i/pzqYIsAM=
