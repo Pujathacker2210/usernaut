@@ -56,6 +56,15 @@ type AtlanUser struct {
 	Enabled     bool   `json:"enabled"`
 }
 
+// createUserRequest represents the request body for creating a user in Atlan
+type createUserRequest struct {
+	Email     string `json:"email"`
+	Username  string `json:"username"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	RoleName  string `json:"roleName"`
+}
+
 // AtlanUsersResponse represents the response from Atlan's users API
 type AtlanUsersResponse struct {
 	TotalRecord  int         `json:"totalRecord"`
