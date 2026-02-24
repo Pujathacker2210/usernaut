@@ -127,12 +127,12 @@ func (ac *AtlanClient) CreateUser(ctx context.Context, u *structs.User) (*struct
 
 	url := fmt.Sprintf("%s/api/service/users", ac.url)
 
-	requestBody := map[string]interface{}{
-		"email":     u.Email,
-		"username":  u.UserName,
-		"firstName": u.FirstName,
-		"lastName":  u.LastName,
-		"roleName":  "$guest",
+	requestBody := createUserRequest{
+		Email:     u.Email,
+		Username:  u.UserName,
+		FirstName: u.FirstName,
+		LastName:  u.LastName,
+		RoleName:  "$guest",
 	}
 
 	response, err := ac.sendRequest(ctx, url, http.MethodPost, requestBody, "CreateUser")
@@ -177,7 +177,7 @@ func (ac *AtlanClient) DeleteUser(ctx context.Context, userID string) error {
 	log.WithField("username", userDetails.UserName).Info("removing user via Atlan SDK")
 
 	// Get OAuth token (required for deletion, static API tokens don't have permission)
-	oauthToken, err := ac.oauthTokenManager.GetToken()
+	oauthToken, err := ac.oauthTokenManager.GetToken(ctx)
 	if err != nil {
 		log.WithError(err).Error("failed to get OAuth token")
 		return fmt.Errorf("failed to get OAuth token: %w", err)
