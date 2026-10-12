@@ -63,6 +63,14 @@ const (
 	requeueAfter = 8 * time.Hour
 )
 
+// backendTypesWithRemovalSupport defines which backend types support automatic
+// team deletion when removed from a Group CR's spec.backends.
+// Add new backend types here once their DeleteTeamByID implementation has been
+// verified to handle full cleanup (including member removal if required).
+var backendTypesWithRemovalSupport = map[string]bool{
+	"fivetran": true,
+}
+
 var retryPriority = -200
 
 // GroupReconciler reconciles a Group object
@@ -215,8 +223,12 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{Priority: &retryPriority}, err
 	}
 
-	// Step 2: Process all backends (no global lock - individual store ops are atomic)
+	// Step 2: Process all active backends (no global lock - individual store ops are atomic)
 	backendErrors := r.processAllBackends(ctx, groupCR, uniqueMembers, log, allLdapUserData)
+
+	// Step 2.5: Clean up backends that were removed from the CR spec
+	removedBackendErrors := r.cleanupRemovedBackends(ctx, groupCR, log)
+	mergeBackendErrors(backendErrors, removedBackendErrors)
 
 	// Step 3: Only update cache indexes if ALL backends succeeded (all-or-nothing)
 	hasErrors := false
@@ -653,6 +665,100 @@ func (r *GroupReconciler) processAllBackends(
 	return backendErrors
 }
 
+// mergeBackendErrors merges source errors into dest, creating inner maps as needed.
+func mergeBackendErrors(dest, source map[string]map[string]string) {
+	for backendType, typeErrors := range source {
+		if _, ok := dest[backendType]; !ok {
+			dest[backendType] = make(map[string]string)
+		}
+		for name, msg := range typeErrors {
+			dest[backendType][name] = msg
+		}
+	}
+}
+
+// cleanupRemovedBackends deletes teams from backends that were previously reconciled
+// but are no longer listed in the Group CR's spec.backends.
+// Only backend types in backendTypesWithRemovalSupport are cleaned up.
+func (r *GroupReconciler) cleanupRemovedBackends(
+	ctx context.Context,
+	groupCR *usernautdevv1alpha1.Group,
+	log *logrus.Entry,
+) map[string]map[string]string {
+	errs := make(map[string]map[string]string)
+	groupName := groupCR.Spec.GroupName
+
+	previousBackends, err := r.Store.Group.GetBackends(ctx, groupName)
+	if err != nil {
+		log.WithError(err).Warn("failed to fetch previous backends from cache, skipping removed backend cleanup")
+		return errs
+	}
+
+	if len(previousBackends) == 0 {
+		return errs
+	}
+
+	// Build a set of current backends from the CR spec
+	currentBackends := make(map[string]struct{}, len(groupCR.Spec.Backends))
+	for _, backend := range groupCR.Spec.Backends {
+		currentBackends[backend.Name+"_"+backend.Type] = struct{}{}
+	}
+
+	for backendKey, backendInfo := range previousBackends {
+		if _, stillPresent := currentBackends[backendKey]; stillPresent {
+			continue
+		}
+
+		backendLogger := log.WithFields(logrus.Fields{
+			"backend":      backendInfo.Name,
+			"backend_type": backendInfo.Type,
+			"team_id":      backendInfo.ID,
+			"action":       "cleanup_removed_backend",
+		})
+
+		if !backendTypesWithRemovalSupport[strings.ToLower(backendInfo.Type)] {
+			backendLogger.Info("backend type does not support automatic removal, skipping cleanup")
+			continue
+		}
+
+		backendLogger.Info("backend removed from CR spec, deleting team from backend")
+
+		backendClient, err := clients.New(backendInfo.Name, backendInfo.Type, r.AppConfig.BackendMap)
+		if err != nil {
+			backendLogger.WithError(err).Error("failed to create client for removed backend cleanup")
+			if _, ok := errs[backendInfo.Type]; !ok {
+				errs[backendInfo.Type] = make(map[string]string)
+			}
+			errs[backendInfo.Type][backendInfo.Name] = err.Error()
+			continue
+		}
+
+		if err := backendClient.DeleteTeamByID(ctx, backendInfo.ID); err != nil {
+			backendLogger.WithError(err).Error("failed to delete team from removed backend")
+			if _, ok := errs[backendInfo.Type]; !ok {
+				errs[backendInfo.Type] = make(map[string]string)
+			}
+			errs[backendInfo.Type][backendInfo.Name] = err.Error()
+			continue
+		}
+
+		backendLogger.Info("successfully deleted team from removed backend")
+
+		if err := r.Store.Group.DeleteBackend(ctx, groupName, backendInfo.Name, backendInfo.Type); err != nil {
+			backendLogger.WithError(err).Error("failed to remove backend from cache after successful deletion")
+			if _, ok := errs[backendInfo.Type]; !ok {
+				errs[backendInfo.Type] = make(map[string]string)
+			}
+			errs[backendInfo.Type][backendInfo.Name] = err.Error()
+			continue
+		}
+
+		backendLogger.Info("successfully cleaned up removed backend from cache")
+	}
+
+	return errs
+}
+
 // processSingleBackend handles processing of a single backend
 func (r *GroupReconciler) processSingleBackend(ctx context.Context,
 	groupCR *usernautdevv1alpha1.Group,
@@ -759,8 +865,10 @@ func (r *GroupReconciler) updateStatusAndHandleErrors(ctx context.Context,
 	log *logrus.Entry) error {
 	backendStatus := make([]usernautdevv1alpha1.BackendStatus, 0, len(groupCR.Spec.Backends))
 
-	// Build status for each backend
+	// Build status for each active backend
+	activeBackendKeys := make(map[string]struct{}, len(groupCR.Spec.Backends))
 	for _, backend := range groupCR.Spec.Backends {
+		activeBackendKeys[backend.Name+"_"+backend.Type] = struct{}{}
 		status := usernautdevv1alpha1.BackendStatus{
 			Name: backend.Name,
 			Type: backend.Type,
@@ -778,6 +886,22 @@ func (r *GroupReconciler) updateStatusAndHandleErrors(ctx context.Context,
 			status.Message = "Successful"
 		}
 		backendStatus = append(backendStatus, status)
+	}
+
+	// Include status for removed backends that failed cleanup
+	for backendType, typeErrors := range backendErrors {
+		for backendName, msg := range typeErrors {
+			key := backendName + "_" + backendType
+			if _, isActive := activeBackendKeys[key]; isActive {
+				continue // already handled above
+			}
+			backendStatus = append(backendStatus, usernautdevv1alpha1.BackendStatus{
+				Name:    backendName,
+				Type:    backendType,
+				Status:  false,
+				Message: "Removed backend cleanup failed: " + msg,
+			})
+		}
 	}
 
 	// Update CR status

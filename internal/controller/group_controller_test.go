@@ -38,6 +38,7 @@ import (
 	"github.com/redhat-data-and-ai/usernaut/pkg/cache/inmemory"
 	"github.com/redhat-data-and-ai/usernaut/pkg/clients/ldap"
 	"github.com/redhat-data-and-ai/usernaut/pkg/config"
+	"github.com/redhat-data-and-ai/usernaut/pkg/logger"
 	"github.com/redhat-data-and-ai/usernaut/pkg/store"
 )
 
@@ -511,6 +512,117 @@ var _ = Describe("Group Controller", func() {
 				err := k8sClient.Get(ctx, nn, &usernautdevv1alpha1.Group{})
 				return errors.IsNotFound(err)
 			}).Should(BeTrue())
+		})
+	})
+
+	Context("When cleaning up removed backends", func() {
+		It("should skip cleanup when no previous backends exist in cache", func() {
+			reconciler, _ := setupTestReconciler(nil)
+
+			groupCR := &usernautdevv1alpha1.Group{
+				Spec: usernautdevv1alpha1.GroupSpec{
+					GroupName: "test-group-no-cache",
+					Backends:  []usernautdevv1alpha1.Backend{},
+				},
+			}
+
+			log := logger.Logger(context.Background()).WithField("test", "no-cache")
+			errs := reconciler.cleanupRemovedBackends(context.Background(), groupCR, log)
+			Expect(errs).To(BeEmpty())
+		})
+
+		It("should skip cleanup for backend types not in the allowlist", func() {
+			reconciler, _ := setupTestReconciler(nil)
+
+			// Simulate a previous reconcile that set up a rover backend
+			err := reconciler.Store.Group.SetBackend(
+				context.Background(), "test-group-rover", "rover", "rover", "team_456")
+			Expect(err).NotTo(HaveOccurred())
+
+			// CR no longer has the rover backend
+			groupCR := &usernautdevv1alpha1.Group{
+				Spec: usernautdevv1alpha1.GroupSpec{
+					GroupName: "test-group-rover",
+					Backends:  []usernautdevv1alpha1.Backend{},
+				},
+			}
+
+			log := logger.Logger(context.Background()).WithField("test", "unsupported-type")
+			errs := reconciler.cleanupRemovedBackends(context.Background(), groupCR, log)
+			Expect(errs).To(BeEmpty())
+
+			// Verify the backend is still in cache (not deleted)
+			exists, err := reconciler.Store.Group.BackendExists(
+				context.Background(), "test-group-rover", "rover", "rover")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exists).To(BeTrue())
+		})
+
+		It("should not clean up backends that are still in the CR spec", func() {
+			fivetranBackend := config.Backend{
+				Name:    "fivetran",
+				Type:    "fivetran",
+				Enabled: true,
+				Connection: map[string]interface{}{
+					keyApiKey:    "testKey",
+					keyApiSecret: "testSecret",
+				},
+			}
+			reconciler, _ := setupTestReconciler([]config.Backend{fivetranBackend})
+
+			// Simulate a previous reconcile that set up the fivetran backend
+			err := reconciler.Store.Group.SetBackend(
+				context.Background(), "test-group-active", "fivetran", "fivetran", "team_123")
+			Expect(err).NotTo(HaveOccurred())
+
+			// CR still has the fivetran backend
+			groupCR := &usernautdevv1alpha1.Group{
+				Spec: usernautdevv1alpha1.GroupSpec{
+					GroupName: "test-group-active",
+					Backends: []usernautdevv1alpha1.Backend{
+						{Name: "fivetran", Type: "fivetran"},
+					},
+				},
+			}
+
+			log := logger.Logger(context.Background()).WithField("test", "still-active")
+			errs := reconciler.cleanupRemovedBackends(context.Background(), groupCR, log)
+			Expect(errs).To(BeEmpty())
+
+			// Verify the backend is still in cache
+			exists, err := reconciler.Store.Group.BackendExists(
+				context.Background(), "test-group-active", "fivetran", "fivetran")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exists).To(BeTrue())
+		})
+
+		It("should return error when backend client creation fails for removed fivetran backend", func() {
+			// No backends configured in AppConfig so client creation will fail
+			reconciler, _ := setupTestReconciler(nil)
+
+			// Simulate a previous reconcile that set up the fivetran backend
+			err := reconciler.Store.Group.SetBackend(
+				context.Background(), "test-group-removed", "fivetran", "fivetran", "team_123")
+			Expect(err).NotTo(HaveOccurred())
+
+			// CR no longer has the fivetran backend
+			groupCR := &usernautdevv1alpha1.Group{
+				Spec: usernautdevv1alpha1.GroupSpec{
+					GroupName: "test-group-removed",
+					Backends:  []usernautdevv1alpha1.Backend{},
+				},
+			}
+
+			log := logger.Logger(context.Background()).WithField("test", "client-creation-fail")
+			errs := reconciler.cleanupRemovedBackends(context.Background(), groupCR, log)
+			Expect(errs).To(HaveKey("fivetran"))
+			Expect(errs["fivetran"]).To(HaveKey("fivetran"))
+
+			// Verify the backend is still in cache (not cleaned up due to error)
+			exists, err := reconciler.Store.Group.BackendExists(
+				context.Background(), "test-group-removed", "fivetran", "fivetran")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exists).To(BeTrue())
 		})
 	})
 })
